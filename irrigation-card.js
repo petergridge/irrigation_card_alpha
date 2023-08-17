@@ -1,9 +1,5 @@
 class IrrigationCard extends HTMLElement {
   setConfig(config) {
-    if (!config.program) {
-      throw new Error("Please specify an irrigation program");
-    }
-
     if (this.lastChild) this.removeChild(this.lastChild);
     const cardConfig = Object.assign({}, config);
     if (!cardConfig.card) cardConfig.card = {};
@@ -12,7 +8,6 @@ class IrrigationCard extends HTMLElement {
       cardConfig.entities_vars = { type: "entity" };
     const element = document.createElement(`hui-${cardConfig.card.type}-card`);
     this._config = JSON.parse(JSON.stringify(cardConfig));
-
     customElements.whenDefined("card-mod").then(() => {
       customElements
         .get("card-mod")
@@ -23,8 +18,9 @@ class IrrigationCard extends HTMLElement {
   }
 
   set hass(hass) {
-    const config = this._config;
+    let entities = [];
 
+    const config = this._config;
     config.card.title = config.title;
     //https://www.home-assistant.io/lovelace/header-footer/
     config.card.header = config.header;
@@ -44,6 +40,7 @@ class IrrigationCard extends HTMLElement {
     let zfname = "";
     let zname = "";
     let first_zone = null;
+    let showconfig = null;
 
     const x = hass.states[config.program];
     if (!x) {
@@ -70,92 +67,103 @@ class IrrigationCard extends HTMLElement {
     }
 
     function cardentities(hass, program) {
-      let entities = [];
+      function addZoneRunConfigButtons(p_zones, p_config) {
+        var zone_name = hass.states[p_zones[0]].attributes["friendly_name"];
+        for (let i = 1; i < p_zones.length; i++) {
+          zone_name += ', ' + (hass.states[p_zones[i]].attributes["friendly_name"]);
+        }
 
-      function add_button_service(
-        p_service,
-        p_name,
-        p_action_name,
-        p_data,
-        p_conditions
-      ) {
-        entities.push({
-          type: "conditional",
-          conditions: p_conditions,
-          row: {
-            type: "button",
-            name: p_name,
-            icon: "mdi:power",
-            action_name: p_action_name,
-            tap_action: {
-              action: "call-service",
-              service: p_service,
-              service_data: p_data,
+        var buttons = [];
+        buttons[0] = {
+          entity: p_zones[0],
+          name: zone_name,
+          icon: "mdi:water",
+          tap_action: {
+            action: "call-service",
+            service: "irrigationprogram.toggle_zone",
+            service_data: {
+              entity_id: config.program,
+              zone: p_zones,
             },
           },
-        });
-      } //add_button_service
+        };
 
-      function add_button_off(p_name, p_action_name, p_data, p_conditions) {
-        entities.push({
-          type: "conditional",
-          conditions: p_conditions,
-          row: {
-            type: "button",
-            name: p_name,
-            icon: "mdi:power",
-            action_name: p_action_name,
-            tap_action: {
-              action: "call-service",
-              service: "switch.turn_off",
-              data: {},
-              target: {
-                entity_id: p_data,
-              },
+        buttons[1] = {
+          entity: p_config,
+          show_name: false,
+          tap_action: {
+            action: "call-service",
+            service: "irrigationprogram.toggle",
+            service_data: {
+              entity_id: p_config,
             },
           },
-        });
-      } //add_button_off
+        };
 
-      function add_entity(p_conditions, p_entity, array) {
+        entities.push({
+          type: "buttons",
+          entities: buttons,
+        });
+      } //addZoneRunConfigButtons
+
+      function addProgramRunConfigButtons(p_config) {
+        var buttons = [];
+        buttons[0] = {
+          entity: config.program,
+          show_name: true,
+          icon: "mdi:power",
+        };
+
+				//check if there are any other attributes to show
+				// before creating this button
+				if (hass.states[config.program].attributes["irrigation_on"]
+					|| hass.states[config.program].attributes["run_freq"]
+					|| hass.states[config.program].attributes["controller_monitor"]
+					|| hass.states[config.program].attributes["inter_zone_delay"]
+				    ) {
+					buttons[1] = {
+						entity: p_config,
+						show_name: false,
+						tap_action: {
+							action: "call-service",
+							service: "irrigationprogram.toggle",
+							service_data: {
+								entity_id: p_config,
+							},
+						},
+					};
+				}
+
+        entities.push({
+          type: "buttons",
+          entities: buttons,
+        });
+      } //addProgramRunConfigButtons
+
+      function add_entity(p_conditions = [], p_entity, array) {
         if (hass.states[config.program].attributes[p_entity]) {
-          if (p_conditions == null) {
-            array.push(hass.states[config.program].attributes[p_entity]);
-          } else {
-            array.push({
-              type: "conditional",
-              conditions: p_conditions,
-              row: { entity: hass.states[config.program].attributes[p_entity] },
-            });
-          }
+          array.push({
+            type: "conditional",
+            conditions: p_conditions,
+            row: { entity: hass.states[config.program].attributes[p_entity] },
+          });
         }
       } //add_entity
 
       function add_attribute(p_attribute, p_name, p_icon, p_conditions, array) {
         if (hass.states[config.program].attributes[p_attribute]) {
-          if (p_conditions == null) {
-            array.push({
+          array.push({
+            type: "conditional",
+            conditions: p_conditions,
+            row: {
               type: "attribute",
               entity: config.program,
               attribute: p_attribute,
               format: "relative",
               name: p_name,
               icon: p_icon,
-            });
-          } else {
-            array.push({
-              type: "conditional",
-              conditions: p_conditions,
-              row: {
-                type: "attribute",
-                entity: config.program,
-                attribute: p_attribute,
-                format: "relative",
-                name: p_name,
-                icon: p_icon,
-              },
-            });
-          }
+            },
+          });
         }
       } //add_attribute
 
@@ -169,27 +177,15 @@ class IrrigationCard extends HTMLElement {
 
       function add_attr_value(p_attribute, array) {
         if (attr_value(p_attribute)) {
-          if (showconfig) {
-            add_entity(
-              [{ entity: showconfig, state: "on" }],
-              p_attribute,
-              array
-            );
-          } else {
-            add_entity(null, p_attribute, array);
-          }
+          add_entity([{ entity: showconfig, state: "on" }], p_attribute, array);
         }
       } //add_attr_value
 
       function ProcessZone(array) {
         name = array[0].split(".")[1];
-        add_attribute(
-          name + "_remaining",
-          hass.states["switch." + name].attributes["friendly_name"],
-          "mdi:timer-outline",
-          [{ entity: config.program, state: "on" }],
-          runtimes
-        );
+        let zonestatus =
+          hass.states[config.program].attributes[name + "_status"];
+
         // list of other in order
         add_attr_value(name + "_enable_zone", zone_attrs);
         add_attr_value(name + "_run_freq", zone_attrs);
@@ -251,175 +247,66 @@ class IrrigationCard extends HTMLElement {
         zfname += hass.states[value].attributes["friendly_name"] + ", ";
       } //getName
 
-      function filter(onoff, zname) {
-        //build the filter for the run button
-        const filter = [{ entity: config.program, state: "off" }];
-        if (hass.states[config.program].attributes[zname + "_run_freq"]) {
-          filter.push({
-            entity: hass.states[config.program].attributes[zname + "_run_freq"],
-            state_not: onoff,
-          });
-        }
-        if (!hass.states[config.program].attributes[zname + "_run_freq"]) {
-          if (hass.states[config.program].attributes["run_freq"]) {
-            filter.push({
-              entity: hass.states[config.program].attributes["run_freq"],
-              state_not: onoff,
-            });
-          }
-        }
-        if (hass.states[config.program].attributes[name + "_enable_zone"]) {
-          filter.push({
-            entity:
-              hass.states[config.program].attributes[name + "_enable_zone"],
-            state_not: onoff,
-          });
-        }
-        if (hass.states[config.program].attributes["irrigation_on"]) {
-          filter.push({
-            entity: hass.states[config.program].attributes["irrigation_on"],
-            state_not: onoff,
-          });
-        }
-        return filter;
-      }
-
       function ZoneHeader(zones, zname) {
         zfname = "";
         zones.forEach(getName);
         zfname = zfname.substring(0, zfname.length - 2);
-
         // process zone/zonegroup main section
+        let zonestatus =
+          hass.states[config.program].attributes[name + "_status"];
         if (config.show_program === false && first_zone && !config.title) {
           //do nothing
         } else {
           entities.push({ type: "section", label: "" });
         }
 
-        add_button_service(
-          "irrigationprogram.run_zone",
-          zfname,
-          "RUN",
-          {
-            entity_id: config.program,
-            zone: zones,
+        showconfig =
+          hass.states[config.program].attributes[zname + "_show_config"];
+        addZoneRunConfigButtons(zones, showconfig);
+
+        // Show the remaining time
+        entities.push({
+          type: "conditional",
+          conditions: [
+            { entity: zonestatus, state_not: "off" },
+            { entity: zonestatus, state_not: "disabled" },
+          ],
+          row: {
+            type: "attribute",
+            entity: config.program,
+            attribute: zname + "_remaining",
+            name: " ",
+            icon: "mdi:timer-outline",
           },
-          filter("off", zname)
+        });
+
+        // Next/Last run details
+        add_attribute(
+          zname + "_next_run",
+          config.next_run_label || "Next Run",
+          "mdi:clock-start",
+          [],
+          entities
         );
 
-        const filteroff = [
-          {
-            entity: hass.states[config.program].attributes[zname + "_next_run"],
-            state: "off",
-          },
-        ];
-        add_button_service(
-          "zone.reload",
-          zfname,
-          " ",
-          {
-            entity_id: config.program,
-            zone: zones,
-          },
-          filter("on", zname)
+        add_attribute(
+          zname + "_last_ran",
+          config.last_ran_label || "Last Ran",
+          "mdi:clock-end",
+          [
+            { entity: config.program, state: "off" },
+            { entity: showconfig, state: "on" },
+          ],
+          entities
         );
-
-        add_button_off(zfname, "STOP", zones, [
-          { entity: zones[0], state: "on" },
-        ]);
-
-        let show_last_ran = true;
-        if (typeof config.show_last_ran !== "undefined") {
-          if (config.show_last_ran === false) {
-            show_last_ran = false;
-          }
-        }
-        let show_next_run = true;
-        if (typeof config.show_next_run !== "undefined") {
-          if (config.show_next_run === false) {
-            show_next_run = false;
-          }
-        }
-        if (showconfig) {
-          if (show_last_ran === true) {
-            add_attribute(
-              zname + "_last_ran",
-              " ",
-              "mdi:clock-end",
-              [
-                { entity: showconfig, state: "on" },
-                { entity: config.program, state: "off" },
-              ],
-              entities
-            );
-          }
-          if (show_next_run === true) {
-            add_attribute(
-              zname + "_next_run",
-              " ",
-              "mdi:clock-start",
-              [
-                { entity: showconfig, state: "on" },
-                { entity: config.program, state: "off" },
-              ],
-              entities
-            );
-          }
-        } else {
-          if (show_last_ran === true) {
-            add_attribute(
-              zname + "_last_ran",
-              " ",
-              "mdi:clock-end",
-              [{ entity: config.program, state: "off" }],
-              entities
-            );
-          }
-          if (show_next_run === true) {
-            add_attribute(
-              zname + "_next_run",
-              " ",
-              "mdi:clock-start",
-              [{ entity: config.program, state: "off" }],
-              entities
-            );
-          }
-        }
       } //ZoneHeader
 
       // Build the Program level entities
-      let show_program = true;
-      if (typeof config.show_program !== "undefined") {
-        if (config.show_program === true) {
-          show_program = true;
-        } else {
-          show_program = false;
-        }
-      }
 
-      let showconfig = hass.states[config.program].attributes["show_config"];
-
-      if (show_program === true) {
-        add_button_service(
-          "switch.turn_on",
-          hass.states[config.program].attributes["friendly_name"],
-          "RUN",
-          {
-            entity_id: config.program,
-          },
-          [{ entity: config.program, state: "off" }]
-        );
-
-        add_button_service(
-          "switch.turn_off",
-          hass.states[config.program].attributes["friendly_name"],
-          "STOP",
-          {
-            entity_id: config.program,
-          },
-          [{ entity: config.program, state: "on" }]
-        );
-
+      if (config.show_program === true) {
+        showconfig = hass.states[config.program].attributes["show_config"];
+        addProgramRunConfigButtons(showconfig);
+        add_entity([], "start_time", entities);
         add_attribute(
           "remaining",
           " ",
@@ -427,10 +314,8 @@ class IrrigationCard extends HTMLElement {
           [{ entity: config.program, state: "on" }],
           entities
         );
-        add_entity(null, "show_config", entities);
 
-        //add the program level configuration use conditional if show config entity is provided
-        add_attr_value("start_time", entities);
+        //add the program level configuration
         add_attr_value("irrigation_on", entities);
         add_attr_value("run_freq", entities);
         add_attr_value("controller_monitor", entities);
@@ -486,11 +371,245 @@ class IrrigationCard extends HTMLElement {
     this.lastChild.hass = hass;
   }
 
+  static getConfigElement() {
+    return document.createElement("irrigation-card-editor");
+  }
+
+  static getStubConfig() {
+    return {
+      program: "",
+      entities: [],
+      show_program: true,
+      next_run_label: "Next Run",
+      last_ran_label: "Last Run",
+    };
+  }
+
   getCardSize() {
-    return "getCardSize" in this.lastChild ? this.lastChild.getCardSize() : 1;
+   return "getCardSize" in this.lastChild ? this.lastChild.getCardSize() : 1;
   }
 }
 
+class IrrigationCardEditor extends HTMLElement {
+  // private properties
+  _config;
+  _hass;
+  _elements = {};
+
+  // lifecycle
+  constructor() {
+    super();
+    console.log("editor:constructor()");
+    this.doEditor();
+    this.doStyle();
+    this.doAttach();
+    this.doQueryElements();
+    this.doListen();
+  }
+
+  setConfig(config) {
+    console.log("editor:setConfig()");
+    this._config = config;
+    this.doUpdateConfig();
+  }
+
+  set hass(hass) {
+    console.log("editor.hass()");
+    this._hass = hass;
+    this.doUpdateHass();
+  }
+
+  onChanged(event) {
+    console.log("editor.onChanged()");
+    this.doMessageForUpdate(event);
+  }
+
+  // jobs
+  doEditor() {
+    this._elements.editor = document.createElement("form");
+    this._elements.editor.innerHTML = `
+			<div class="row"><label class="label" for="program">Program:</label><select class="value" id="program"></select></div>
+			<div class="row"><label class="label" for="entities">Entity:</label><select class="value" id="entities" multiple></select></div>
+			<div class="row"><label class="label" for="show_program">Show program:</label><input type="checkbox" id="show_program" checked></input></div>
+			<div class="row"><label class="label" for="last_ran_label">Last ran label:</label><input type="text" id="last_ran_label" defaultValue='Last Ran'></input></div>
+			<div class="row"><label class="label" for="next_run_label">Next run label:</label><input type="text" id="next_run_label" defaultValue='Next Run'></input></div>
+			`;
+  }
+//<div class="row"><label class="label" for="debug">debug:</label><input type="text" id="debug"></input></div>
+//this._elements.debug.value = select.value;
+
+
+  doStyle() {
+    this._elements.style = document.createElement("style");
+    this._elements.style.textContent = `
+              form {
+                  display: table;
+              }
+              .row {
+                  display: table-row;
+              }
+              .label, .value {
+                  display: table-cell;
+                  padding: 0.5em;
+              }
+          `;
+  }
+
+  doAttach() {
+    this.attachShadow({ mode: "open" });
+    this.shadowRoot.append(this._elements.style, this._elements.editor);
+  }
+
+  doQueryElements() {
+    this._elements.program = this._elements.editor.querySelector("#program");
+    this._elements.entities = this._elements.editor.querySelector("#entities");
+    this._elements.show_program =
+      this._elements.editor.querySelector("#show_program");
+    this._elements.last_ran_label =
+      this._elements.editor.querySelector("#last_ran_label");
+    this._elements.next_run_label =
+      this._elements.editor.querySelector("#next_run_label");
+
+		this._elements.debug =
+      this._elements.editor.querySelector("#debug");
+  }
+
+  doListen() {
+    this._elements.program.addEventListener(
+      "change",
+      this.onChanged.bind(this)
+    );
+    this._elements.entities.addEventListener(
+      "change",
+      this.onChanged.bind(this)
+    );
+    this._elements.show_program.addEventListener(
+      "change",
+      this.onChanged.bind(this)
+    );
+    this._elements.last_ran_label.addEventListener(
+      "change",
+      this.onChanged.bind(this)
+    );
+    this._elements.next_run_label.addEventListener(
+      "change",
+      this.onChanged.bind(this)
+    );
+  }
+
+  doBuildProgramOptions(program) {
+    // build the list of available programs
+    //var exists = false;
+    var select = this._elements.program;
+    // remove the existing list
+    var i = 0;
+    var l = select.options.length - 1;
+    for (i = l; i >= 0; i--) {
+      select.remove(i);
+    }
+    // populate the list of programs
+    for (var x in this._hass.states) {
+      if (Number(this._hass.states[x].attributes["zone_count"]) > 0) {
+        let newOption = new Option(x, x);
+        if (x = this._config.program) {
+          newOption.selected = true;
+          //exists = true;
+        }
+        select.add(newOption);
+      }
+    }
+    // fire a change event to action the above selection
+    var event = new Event("change");
+    select.dispatchEvent(event);
+  }
+
+  doBuildEntityOptions(program, entities) {
+    // build the list of zones in the program
+    var zones = Number(this._hass.states[program].attributes["zone_count"]);
+    var select = this._elements.editor.querySelector("#entities");
+    //renove existing options
+    var i = 0;
+    var l = select.options.length - 1;
+    for (i = l; i >= 0; i--) {
+      select.remove(i);
+    }
+    //rebuild the options
+    for (i = 1; i < zones + 1; i++) {
+      var zname =
+        "switch." +
+        this._hass.states[program].attributes["zone" + String(i) + "_name"];
+      let newOption = new Option(zname, zname);
+      if (entities.includes(zname)) {
+        newOption.selected = true;
+      }
+      select.add(newOption);
+    }
+  }
+
+  doUpdateConfig() {
+    // Build values on load
+    this.doBuildProgramOptions(this._config.program);
+    this._elements.show_program.checked = this._config.show_program;
+    this._elements.last_ran_label.value =
+      this._config.last_ran_label || "Last Ran";
+    this._elements.next_run_label.value =
+      this._config.next_run_label || "Next Run";
+    if (this._elements.program.value.split(".")[0] == "switch") {
+      this._elements.entities.value = this._hass.config["entities"];
+      this.doBuildEntityOptions(
+        this._elements.program.value,
+        this._config.entities
+      );
+    }
+  }
+
+  doUpdateHass() {}
+
+  doMessageForUpdate(changedEvent) {
+    // Update values on change the event
+
+    // this._config is readonly, copy needed
+    const newConfig = Object.assign({}, this._config);
+		
+    if (changedEvent.target.id == "program") {
+      // get the selected program
+      var select = this._elements.editor.querySelector("#program");
+			newConfig.program = select.value;
+
+      // if the program has changed reset the selected zones
+      if (newConfig.program != select.value) {
+        newConfig.entities = [];
+        this.doBuildEntityOptions(newConfig.program, []);
+      }
+    } else if (changedEvent.target.id == "entities") {
+      // format the list of selected zones
+      var selectedentities = [];
+      var count = 0;
+      var select = this._elements.editor.querySelector("#entities");
+      for (var i = 0; i < select.options.length; i++) {
+        if (select.options[i].selected) {
+          selectedentities[count] = select.options[i].value;
+          count++;
+        }
+      }
+      newConfig.entities = selectedentities;
+    } else if (changedEvent.target.id == "show_program") {
+      newConfig.show_program = changedEvent.target.checked;
+    } else if (changedEvent.target.id == "last_ran_label") {
+      newConfig.last_ran_label = changedEvent.target.value;
+    } else if (changedEvent.target.id == "next_run_label") {
+      newConfig.next_run_label = changedEvent.target.value;
+    }
+    const messageEvent = new CustomEvent("config-changed", {
+      detail: { config: newConfig },
+      bubbles: true,
+      composed: true,
+    });
+    this.dispatchEvent(messageEvent);
+  }
+}
+
+customElements.define("irrigation-card-editor", IrrigationCardEditor);
 customElements.define("irrigation-card", IrrigationCard);
 window.customCards = window.customCards || [];
 window.customCards.push({
