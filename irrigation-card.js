@@ -470,8 +470,8 @@ class IrrigationCardEditor extends HTMLElement {
     this._elements.next_run_label =
       this._elements.editor.querySelector("#next_run_label");
 
-		this._elements.debug =
-      this._elements.editor.querySelector("#debug");
+//		this._elements.debug =
+//      this._elements.editor.querySelector("#debug");
   }
 
   doListen() {
@@ -499,7 +499,6 @@ class IrrigationCardEditor extends HTMLElement {
 
   doBuildProgramOptions(program) {
     // build the list of available programs
-    //var exists = false;
     var select = this._elements.program;
     // remove the existing list
     var i = 0;
@@ -507,13 +506,13 @@ class IrrigationCardEditor extends HTMLElement {
     for (i = l; i >= 0; i--) {
       select.remove(i);
     }
+
     // populate the list of programs
     for (var x in this._hass.states) {
       if (Number(this._hass.states[x].attributes["zone_count"]) > 0) {
         let newOption = new Option(x, x);
-        if (x = this._config.program) {
+        if (x == this._config.program) {
           newOption.selected = true;
-          //exists = true;
         }
         select.add(newOption);
       }
@@ -527,7 +526,7 @@ class IrrigationCardEditor extends HTMLElement {
     // build the list of zones in the program
     var zones = Number(this._hass.states[program].attributes["zone_count"]);
     var select = this._elements.editor.querySelector("#entities");
-    //renove existing options
+    //remove existing options
     var i = 0;
     var l = select.options.length - 1;
     for (i = l; i >= 0; i--) {
@@ -574,13 +573,13 @@ class IrrigationCardEditor extends HTMLElement {
     if (changedEvent.target.id == "program") {
       // get the selected program
       var select = this._elements.editor.querySelector("#program");
-			newConfig.program = select.value;
 
       // if the program has changed reset the selected zones
       if (newConfig.program != select.value) {
         newConfig.entities = [];
-        this.doBuildEntityOptions(newConfig.program, []);
+       this.doBuildEntityOptions(newConfig.program, []);
       }
+			newConfig.program = select.value;
     } else if (changedEvent.target.id == "entities") {
       // format the list of selected zones
       var selectedentities = [];
@@ -600,12 +599,12 @@ class IrrigationCardEditor extends HTMLElement {
     } else if (changedEvent.target.id == "next_run_label") {
       newConfig.next_run_label = changedEvent.target.value;
     }
-    const messageEvent = new CustomEvent("config-changed", {
-      detail: { config: newConfig },
+    const event = new Event("config-changed", {
       bubbles: true,
       composed: true,
     });
-    this.dispatchEvent(messageEvent);
+		event.detail = { config: newConfig };
+    this.dispatchEvent(event);
   }
 }
 
